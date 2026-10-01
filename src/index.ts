@@ -1026,11 +1026,18 @@ ${transcript}`;
     const difficulty = Math.min(6, Math.max(1, Number(url.searchParams.get("difficulty") || 1)));
     const count = Math.min(5, Math.max(1, Number(url.searchParams.get("count") || 1)));
     const clean = (s: string) => String(s || "").trim().replace(/\s+/g, " ").replace(/[.。!?…]+$/, "");
-    const existing = await env.DB.prepare(
-      "SELECT * FROM paraphrase_items WHERE user_id=? AND difficulty=? ORDER BY created_at ASC LIMIT 1"
-    ).bind(userId, difficulty).first().catch(() => null) as any;
-    if (existing && count === 1) {
-      return cors(json({ id: existing.id, source_text: existing.source_text, target_text: existing.target_text, difficulty: existing.difficulty, vocab: JSON.parse(existing.source_vocab_json || "[]") }));
+    const pool = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM paraphrase_items WHERE user_id=? AND difficulty=?"
+    ).bind(userId, difficulty).first().catch(() => ({ n: 0 })) as any;
+    // Single requests rotate through the cache (review variety) instead of
+    // replaying the same oldest sentence forever; fresh batches always generate.
+    if (Number(pool?.n || 0) >= 3 && count === 1) {
+      const pick = await env.DB.prepare(
+        "SELECT * FROM paraphrase_items WHERE user_id=? AND difficulty=? ORDER BY RANDOM() LIMIT 1"
+      ).bind(userId, difficulty).first().catch(() => null) as any;
+      if (pick) {
+        return cors(json({ id: pick.id, source_text: pick.source_text, target_text: pick.target_text, difficulty: pick.difficulty, vocab: JSON.parse(pick.source_vocab_json || "[]"), cached: true }));
+      }
     }
     const levelHint = ["direct vocabulary", "synonym substitution", "grammatical transformation", "mixed transformation", "IELTS Reading paraphrase recognition", "IELTS Writing sentence production"][difficulty - 1];
     // One AI call for the whole batch (was one call per sentence).

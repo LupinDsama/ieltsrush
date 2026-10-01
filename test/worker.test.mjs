@@ -273,6 +273,13 @@ ok('forge batch count', (r.data.items || []).length === 3, JSON.stringify(r.data
 ok('forge no trailing period', (r.data.items || []).every(i => !/[.。!?…]$/.test(i.target_text) && !/[.。!?…]$/.test(i.source_text)), JSON.stringify((r.data.items || []).map(i => i.target_text)));
 r = await call('/api/forge/item?difficulty=2&count=1');
 ok('forge single compat', !!r.data.id && !!r.data.target_text);
+const poolIds = new Set((await db.prepare("SELECT id FROM paraphrase_items WHERE difficulty=2").all()).map((x) => x.id));
+const seenSingle = new Set();
+for (let i = 0; i < 6; i++) {
+  const s = await call('/api/forge/item?difficulty=2&count=1');
+  if (s.data.id) seenSingle.add(s.data.id);
+}
+ok('forge single rotates cache', [...seenSingle].every((x) => poolIds.has(x)) && seenSingle.size >= 2, [...seenSingle].join(','));
 globalThis.__forgeBad = true;
 r = await call('/api/forge/item?difficulty=3&count=2');
 ok('forge drops mismatched pair', (r.data.items || []).length === 2 && !(r.data.items || []).some((i) => i.target_text.includes('BLOAT')), JSON.stringify((r.data.items || []).map((i) => i.target_text)));
