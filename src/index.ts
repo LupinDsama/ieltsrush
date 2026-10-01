@@ -105,16 +105,37 @@ async function geminiAttempt(base: string, model: string, key: string, prompt: s
     throw new Error(`AI API ${res.status}: ${detail.slice(0, 120)}`);
   }
   const rawText = geminiText(await res.json());
-  try {
-    return parseModelJSON(rawText);
-  } catch {
-    const err = new Error("AI returned non-JSON");
-    (err as any).snippet = String(rawText).slice(0, 120);
-    throw err;
-  }
+  return rawText;
 }
 
-async function geminiJSON(env: Env, prompt: string) {
+// Pull every balanced top-level {...} block out of messy model output
+// (concatenated objects, prose-wrapped JSON). Returns parsed successes.
+export function extractObjects(raw: unknown): any[] {
+  const t = stripFences(typeof raw === "string" ? raw : (raw as any)?.response ?? JSON.stringify(raw));
+  const out: any[] = [];
+  let depth = 0, inStr = false, esc = false, start = -1;
+  for (let j = 0; j < t.length; j++) {
+    const ch = t[j];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+    } else {
+      if (ch === '"') inStr = true;
+      else if (ch === "{") { if (depth === 0) start = j; depth++; }
+      else if (ch === "}") {
+        if (depth > 0) depth--;
+        if (depth === 0 && start >= 0) {
+          try { out.push(JSON.parse(t.slice(start, j + 1))); } catch { /* skip fragment */ }
+          start = -1;
+        }
+      }
+    }
+  }
+  return out;
+}
+
+async function geminiTextRaw(env: Env, prompt: string): Promise<string> {
   const keys = apiKeys(env);
   const base = (env.AI_API_BASE || "https://generativelanguage.googleapis.com/v1beta").replace(/\/$/, "");
   const model = env.AI_MODEL || "gemini-3.8-flash";
@@ -131,6 +152,35 @@ async function geminiJSON(env: Env, prompt: string) {
     }
   }
   throw lastErr;
+}
+
+async function geminiJSON(env: Env, prompt: string) {
+  const rawText = await geminiTextRaw(env, prompt);
+  try {
+    return parseModelJSON(rawText);
+  } catch {
+    const err = new Error("AI returned non-JSON");
+    (err as any).snippet = String(rawText).slice(0, 120);
+    throw err;
+  }
+}
+
+// Raw model text through the full chain (key ring, then Workers AI single
+// shot). Callers that need custom extraction (multi-object) parse it themselves.
+export async function aiJSONText(env: Env, prompt: string): Promise<string> {
+  if (apiKeys(env).length > 0) {
+    try {
+      return await geminiTextRaw(env, prompt);
+    } catch (e) {
+      if (e instanceof AIConfigError) throw e;
+    }
+  }
+  const result: any = await env.AI.run((env.CF_MODEL || "@cf/meta/llama-3.1-8b-instruct-fp8") as any, {
+    prompt,
+    response_format: { type: "json_object" },
+    max_tokens: 2048
+  } as any);
+  return typeof result === "string" ? result : result.response ?? JSON.stringify(result);
 }
 
 async function aiJSON(env: Env, prompt: string) {
@@ -984,20 +1034,44 @@ ${transcript}`;
     }
     const levelHint = ["direct vocabulary", "synonym substitution", "grammatical transformation", "mixed transformation", "IELTS Reading paraphrase recognition", "IELTS Writing sentence production"][difficulty - 1];
     // One AI call for the whole batch (was one call per sentence).
-    const data = await aiJSON(env, `You are an IELTS paraphrase item writer.
+    // Equivalence contract: the English must say EXACTLY what the Vietnamese
+    // says. No added details, no dropped details, same numbers and names.
+    const data = await aiJSONText(env, `You are an IELTS paraphrase item writer.
 Return ONLY JSON: {"items":[{"source_text":"","target_text":"","vocab":["",""]}]}
-Write exactly ${count} items.
-source_text: a natural Vietnamese sentence (12-20 words). Never end with a period.
-target_text: its English equivalent at difficulty "${levelHint}" (12-22 words, single sentence). Never end with a period.
-vocab: 3-5 key English words from target_text worth reviewing.
+Write exactly ${Math.min(6, count + 1)} items.
+source_text: a natural, complete Vietnamese sentence (12-20 words). Never end with a period.
+target_text: the English translation of source_text at difficulty "${levelHint}" (12-22 words, single sentence). Never end with a period.
+STRICT EQUIVALENCE RULES:
+- target_text must express EXACTLY the same facts as source_text: nothing added, nothing omitted.
+- Keep every number, name, place and time identical in meaning.
+- Do not extend the sentence with extra clauses (for example never append "before ..." or "because ..." that the Vietnamese did not say).
+- Keep a similar length: English words between 40% and 180% of Vietnamese words.
+vocab: 3-5 key English words actually present in target_text.
+SELF-CHECK before output: re-read each pair; if any detail differs, rewrite the English until it matches exactly.
 Write original sentences, nothing copyrighted.`);
-    const rawItems = (Array.isArray((data as any).items) ? (data as any).items : [data]).slice(0, count);
+    // Accept wrapped {"items":[...]}, a bare array, one object, or several
+    // concatenated objects (small models often skip the wrapper).
+    let rawItems: any[] = [];
+    try {
+      const parsed = parseModelJSON(data);
+      rawItems = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.items) ? parsed.items : [parsed]);
+    } catch {
+      rawItems = extractObjects(data);
+    }
+    const validPair = (vi: string, en: string) => {
+      const viW = vi.split(" ").filter(Boolean).length;
+      const enW = en.split(" ").filter(Boolean).length;
+      if (!viW || !enW || viW < 6 || enW < 6) return false;
+      const ratio = enW / viW;
+      return ratio >= 0.4 && ratio <= 1.8;
+    };
     const items: any[] = [];
     for (const it of rawItems) {
+      if (items.length >= count) break;
       const itemId = id();
       const source = clean(it.source_text);
       const target = clean(it.target_text);
-      if (!source || !target) continue;
+      if (!validPair(source, target)) continue;
       await env.DB.prepare(
         "INSERT INTO paraphrase_items(id,user_id,source_text,target_text,difficulty,source_vocab_json) VALUES(?,?,?,?,?,?)"
       ).bind(itemId, userId, source, target, difficulty, JSON.stringify(it.vocab || [])).run();

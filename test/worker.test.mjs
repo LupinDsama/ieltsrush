@@ -43,8 +43,17 @@ const AI = {
       return { response: JSON.stringify({ words: [{ word: 'mitigate', pos: 'verb', definition: 'to reduce severity', meaning_vi: 'giam nhe', example: 'Policies mitigate risks.', collocations: ['mitigate risk'], synonyms: ['alleviate'], difficulty: 3 }], questions: [{ question: 'mitigate means?', options: ['reduce', 'grow', 'hide', 'skip'], answer: 'reduce', explanation: 'it means reduce' }] }) };
     }
     if (prompt.includes('paraphrase item writer')) {
-      const n = (prompt.match(/Write exactly (\d+) items/) || [])[1] || 1;
-      const items = Array.from({ length: Number(n) }, (_, i) => ({ source_text: `Cau tieng Viet so ${i + 1}.`, target_text: `English sentence number ${i + 1}.`, vocab: ['english', 'sentence'] }));
+      if (globalThis.__forgeConcat) {
+        return { response: '{"source_text":"Hom nay la mot ngay dep troi de di hoc bai mot.","target_text":"Today is a good day to go study lesson one.","vocab":["today","study"]}\n{"source_text":"Co ay thuong day som de tap the duc buoi sang.","target_text":"She usually wakes early to exercise in the morning.","vocab":["usually","exercise"]}' };
+      }
+      const n = Number((prompt.match(/Write exactly (\d+) items/) || [])[1] || 1);
+      const items = Array.from({ length: n }, (_, i) => ({
+        source_text: `Hom nay la mot ngay dep troi de di hoc bai ${i + 1}.`,
+        target_text: globalThis.__forgeBad && i === 0
+          ? 'BLOAT ' + 'word '.repeat(60)
+          : `Today is a good day to go study lessons number ${i + 1}.`,
+        vocab: ['today', 'study']
+      }));
       return { response: JSON.stringify({ items }) };
     }
     if (prompt.includes('paraphrasing coach')) {
@@ -264,6 +273,14 @@ ok('forge batch count', (r.data.items || []).length === 3, JSON.stringify(r.data
 ok('forge no trailing period', (r.data.items || []).every(i => !/[.。!?…]$/.test(i.target_text) && !/[.。!?…]$/.test(i.source_text)), JSON.stringify((r.data.items || []).map(i => i.target_text)));
 r = await call('/api/forge/item?difficulty=2&count=1');
 ok('forge single compat', !!r.data.id && !!r.data.target_text);
+globalThis.__forgeBad = true;
+r = await call('/api/forge/item?difficulty=3&count=2');
+ok('forge drops mismatched pair', (r.data.items || []).length === 2 && !(r.data.items || []).some((i) => i.target_text.includes('BLOAT')), JSON.stringify((r.data.items || []).map((i) => i.target_text)));
+globalThis.__forgeBad = false;
+globalThis.__forgeConcat = true;
+r = await call('/api/forge/item?difficulty=4&count=2');
+ok('forge salvages concatenated objects', (r.data.items || []).length === 2 && r.data.items.every((i) => i.source_text && i.target_text), JSON.stringify((r.data.items || []).map((i) => i.target_text)));
+globalThis.__forgeConcat = false;
 
 // 20 vocab generate: single AI call + batch insert
 r = await call('/api/vocab/generate', { method: 'POST', body: { topic: 'Health', count: 1 } });
