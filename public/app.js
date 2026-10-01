@@ -1,6 +1,9 @@
 const $=s=>document.querySelector(s);
 const $$=s=>document.querySelectorAll(s);
-const api=async(path,opt={})=>{const r=await fetch(path,{headers:{"content-type":"application/json"},...opt});const d=await r.json();if(!r.ok)throw Error(d.error||"Request failed");return d};
+// API_BASE: same-origin by default (Cloudflare Workers serves frontend + API).
+// GitHub Pages build injects <meta name="api-base" content="https://...workers.dev">.
+const API_BASE=(document.querySelector('meta[name="api-base"]')||{}).content||"";
+const api=async(path,opt={})=>{const r=await fetch(API_BASE+path,{headers:{"content-type":"application/json"},...opt});const d=await r.json();if(!r.ok)throw Error(d.error||"Request failed");return d};
 
 $$(".tabs button").forEach(b=>b.onclick=()=>{$$(".tabs button").forEach(x=>x.classList.remove("active"));b.classList.add("active");$$(".tab").forEach(x=>x.classList.add("hidden"));$("#"+b.dataset.tab).classList.remove("hidden")});
 
