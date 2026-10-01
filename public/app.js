@@ -29,6 +29,8 @@ async function loadDashboard(){
       <p>${x.target||""}</p>
     </div>`).join("");
   $$("#days input").forEach(c=>c.onchange=async()=>{await api("/api/plan/toggle",{method:"POST",body:JSON.stringify({day:c.dataset.day,completed:c.checked})});loadDashboard()});
+  renderNodes(d.quests);
+  renderNextBest();
 }
 $("#seedPlan").onclick=async()=>{await api("/api/plan/seed",{method:"POST"});loadDashboard()};
 const seedTop=$("#seedPlanTop");if(seedTop)seedTop.onclick=async()=>{await api("/api/plan/seed",{method:"POST"});loadDashboard()};
@@ -94,4 +96,199 @@ $("#speakingBtn").onclick=async()=>{
   $("#speakingOutput").innerHTML=`<div class="card"><div class="score">${d.estimated_band||"-"}</div>
   <p>${d.fluency_coherence||""}</p><p>${d.lexical_resource||""}</p><p>${d.grammar||""}</p>
   <p class="muted">${d.pronunciation_note||""}</p><h3>Better phrases</h3><ul>${(d.better_phrases||[]).map(x=>`<li>${x}</li>`).join("")}</ul></div>`;
+};
+// ---------- Spec: diagnostic, board nodes, timed runner, Paraphrase Forge ----------
+
+$("#diagBtn").onclick=async()=>{
+  const m=($("#dgScore").value||"0/0").split("/");
+  const d=await api("/api/diagnostic/submit",{method:"POST",body:JSON.stringify({
+    bands:{reading:+$("#dgR").value,listening:+$("#dgL").value,writing:+$("#dgW").value,speaking:+$("#dgS").value},
+    results:[{skill:"reading",questionType:$("#dgType").value,correct:+m[0]||0,total:+m[1]||0}]
+  })});
+  const top=(d.priorities.components||[])[0];
+  $("#diagOut").textContent="Saved. Top priority: "+(top?top.skill+"/"+top.pattern:"n/a");
+  loadDashboard();
+};
+
+$("#genQuest").onclick=async()=>{
+  const d=await api("/api/quests/generate",{method:"POST",body:JSON.stringify({day:+$("#genDay").value})});
+  $("#genOut").textContent=d.quest.title+" ("+d.quest.type+", "+d.questions.length+" bank questions)";
+  $("#runQuestId").value=d.quest.id;
+  loadDashboard();
+};
+
+function renderNodes(quests){
+  const el=$("#questNodes");
+  if(!el) return;
+  el.innerHTML=(quests||[]).map(q=>`
+    <button class="node node-${q.status}" data-qid="${q.id}" ${q.status==="locked"?"disabled":""}>
+      <b>${q.title||"Quest"}</b>
+      <span class="tag">${q.quest_type||""}</span>
+      <span class="tag">${q.status||""}</span>
+      ${q.xp_reward?`<span class="muted">+${q.xp_reward} XP</span>`:""}
+    </button>`).join("")||`<p class="muted">No quests yet. Generate one from evidence.</p>`;
+  el.querySelectorAll("button[data-qid]").forEach(b=>b.onclick=()=>{
+    $("#runQuestId").value=b.dataset.qid;
+    document.querySelector('[data-tab="quest"]').click();
+  });
+}
+
+function renderNextBest(){
+  api("/api/next-actions").then(a=>{
+    const el=$("#nextBest");
+    if(el) el.innerHTML=(a||[]).map(n=>`<div class="pri"><b>${n.rank}. ${n.action}</b><br><span class="muted">${n.reason||""}</span></div>`).join("")||`<p class="muted">No direction yet. Complete a quest first.</p>`;
+  }).catch(()=>{});
+}
+
+// ---------- Timed runner (spec section 9) ----------
+let run=null, timerInt=null;
+const fmtT=ms=>{const s=Math.max(0,Math.round(ms/1000));return String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0");};
+
+$("#startQuest").onclick=async()=>{
+  const qid=$("#runQuestId").value.trim();
+  if(!qid) return;
+  const d=await api("/api/quest/start",{method:"POST",body:JSON.stringify({questId:qid})});
+  run={...d,answers:{},warned:{},endAt:Date.now()+d.durationMin*60000,t0:new Date().toISOString()};
+  try{const saved=JSON.parse(localStorage.getItem("run-"+qid)||"{}");run.answers=saved.answers||{};}catch(e){}
+  renderRunner();
+  clearInterval(timerInt);
+  timerInt=setInterval(tickRun,1000);
+};
+
+function renderRunner(){
+  const el=$("#runner");
+  const total=run.questions.length;
+  const done=Object.keys(run.answers).filter(k=>run.answers[k]).length;
+  el.innerHTML=`<div class="panel"><h3>${run.quest.title}</h3>
+    <div class="run-top"><span id="runTimer">${fmtT(run.endAt-Date.now())}</span>
+    <span>Question ${Math.min(total,done+1)} / ${total}</span>
+    <span id="runWarn" class="muted"></span></div>
+    <div class="progress"><div id="runBar" style="width:${total?Math.round(done/total*100):0}%"></div></div>
+    ${run.questions.map((q,i)=>`<div class="card"><p><b>${i+1}. ${q.prompt}</b></p>
+      ${(JSON.parse(q.options_json||"[]")).map(o=>`<label class="opt"><input type="radio" name="q-${q.id}" value="${o}" ${run.answers[q.id]===o?"checked":""}> ${o}</label>`).join("")}
+      ${!(JSON.parse(q.options_json||"[]")).length?`<input data-qid="${q.id}" value="${run.answers[q.id]||""}" placeholder="Your answer">`:""}
+    </div>`).join("")||`<p class="muted">No bank questions yet. Add some in Sources/Questions or answer from your material, then submit.</p>`}
+    <button id="submitRun">Submit quest</button></div>`;
+  el.querySelectorAll("input[type=radio]").forEach(r=>r.onchange=()=>{run.answers[r.name.slice(2)]=r.value;saveRun();renderRunner();});
+  el.querySelectorAll("input[data-qid]").forEach(inp=>inp.oninput=()=>{run.answers[inp.dataset.qid]=inp.value;saveRun();});
+  $("#submitRun").onclick=()=>submitRun(false);
+}
+
+function saveRun(){try{localStorage.setItem("run-"+run.quest.id,JSON.stringify({answers:run.answers}));}catch(e){}}
+function tickRun(){
+  const left=run.endAt-Date.now();
+  const el=$("#runTimer");if(el)el.textContent=fmtT(left);
+  const pct=100*(1-left/(run.durationMin*60000));
+  for(const w of run.warnings||[]){
+    if(pct>=w&&!run.warned[w]){run.warned[w]=1;const t=$("#runWarn");if(t)t.textContent=w+"% of time used";}
+  }
+  const bar=$("#runBar");if(bar){const total=run.questions.length;const done=Object.keys(run.answers).filter(k=>run.answers[k]).length;bar.style.width=(total?Math.round(done/total*100):0)+"%";}
+  if(left<=0)submitRun(true);
+}
+
+async function submitRun(auto){
+  clearInterval(timerInt);
+  const answers=Object.entries(run.answers).map(([questionId,answer])=>({questionId,answer}));
+  const d=await api("/api/quest/submit",{method:"POST",body:JSON.stringify({questId:run.quest.id,answers,startedAt:run.t0,hintsUsed:0})});
+  try{localStorage.removeItem("run-"+run.quest.id);}catch(e){}
+  const html=`<div class="card"><h3>QUEST RESULT${auto?" (auto-submitted)":""}</h3>
+    <p>Score: ${d.score}/${d.total} · Accuracy: ${Math.round(d.accuracy*100)}% · Time: ${fmtT(d.timeMs)}</p>
+    <p><b>+${d.xp} XP · +${d.coins} coins</b> ${d.combo?"· "+d.combo:""}</p>
+    <p><b>Strong:</b> ${(d.strong||[]).join(", ")||"-"}</p>
+    <p><b>Weak:</b> ${(d.weak||[]).join(", ")||"-"}</p>
+    <h3>NEXT BEST ACTION</h3>
+    <ul>${(d.nextBest||[]).map(n=>`<li>${n.action} <span class="muted">(${n.reason||""})</span></li>`).join("")}</ul>
+    <p class="muted">Estimated time: ${d.estimatedMinutes||0} minutes · Practice estimate, not an official score.</p></div>`;
+  $("#runner").innerHTML=html;
+  const qb=$("#questResultBoard");if(qb)qb.innerHTML=html;
+  run=null;
+  loadDashboard();
+}
+
+// ---------- Paraphrase Forge (spec sections 13-20) ----------
+let forge={item:null,slots:[],idx:0,fails:0,mistakes:0,firstTry:0,t0:0,strict:true};
+
+$("#forgeMode").onclick=()=>{
+  forge.strict=!forge.strict;
+  $("#forgeMode").textContent="Mode: "+(forge.strict?"strict":"flexible");
+  $("#forgeFlexPanel").classList.toggle("hidden",forge.strict);
+};
+
+$("#forgeNew").onclick=async()=>{
+  const d=await api("/api/forge/item?difficulty="+ +$("#forgeLevel").value);
+  forge={item:d,slots:[],idx:0,fails:0,mistakes:0,firstTry:0,t0:Date.now(),strict:forge.strict};
+  const words=d.target_text.split(" ");
+  let html=`<div class="panel"><p><b>VI:</b> ${d.source_text}</p><div id="forgeSlots">`;
+  words.forEach((w,wi)=>{
+    html+=`<span class="fword" data-wi="${wi}">`;
+    [...w].forEach((ch,ci)=>{
+      const given=ci===0;
+      forge.slots.push({ch,wi,ci,given,done:given,failed:false});
+      html+=`<span class="slot${given?" given":""}" data-si="${forge.slots.length-1}">${given?ch:""}</span>`;
+    });
+    html+=`</span> `;
+  });
+  html+=`<div id="forgeAva">▲</div></div><p id="forgeHint" class="muted"></p>
+    <p class="muted">Target: ${words.length} words · level ${d.difficulty}</p></div>
+    <div id="forgeDone"></div>`;
+  $("#forgeArea").innerHTML=html;
+  const area=$("#forgeSlots");
+  area.tabIndex=0;area.focus();
+  area.onkeydown=forgeKey;
+  area.onclick=()=>area.focus();
+  moveAva();
+};
+
+function curSlot(){while(forge.idx<forge.slots.length&&forge.slots[forge.idx].done)forge.idx++;return forge.slots[forge.idx];}
+
+function moveAva(){
+  const s=curSlot();const ava=$("#forgeAva");if(!ava)return;
+  if(!s){ava.style.display="none";return;}
+  const el=document.querySelector(`[data-si="${forge.slots.indexOf(s)}"]`);
+  if(el){ava.style.display="block";ava.style.left=(el.offsetLeft+el.offsetWidth/2-6)+"px";ava.style.top=(el.offsetTop-20)+"px";}
+}
+
+function forgeKey(e){
+  if(!forge.item||forge.idx>=forge.slots.length)return;
+  if(e.key.length!==1&&e.key!==" ") {if(e.key==="Backspace")e.preventDefault();return;}
+  e.preventDefault();
+  if(e.key===" ") return; // spaces advance automatically between words
+  const s=curSlot();if(!s)return;
+  const typed=e.key;
+  if(typed.toLowerCase()===s.ch.toLowerCase()){
+    s.done=true;
+    if(!s.failed)forge.firstTry++;
+    forge.fails=0;
+    const el=document.querySelector(`[data-si="${forge.slots.indexOf(s)}"]`);
+    if(el){el.textContent=s.ch;el.classList.add("ok");}
+    forge.idx++;
+    const done=forge.slots.filter(x=>x.done).length;
+    if(done===forge.slots.length)forgeFinish();
+    else moveAva();
+  }else{
+    s.failed=true;forge.fails++;forge.mistakes++;
+    const el=document.querySelector(`[data-si="${forge.slots.indexOf(s)}"]`);
+    if(el){el.classList.add("bad");setTimeout(()=>el.classList.remove("bad"),300);}
+    if(forge.fails===3){$("#forgeHint").textContent="Hint: the letter is '"+s.ch+"'. Sound it out.";}
+    if(forge.fails>=5){s.done=true;forge.fails=0;if(el){el.textContent=s.ch;el.classList.add("hinted");}$("#forgeHint").textContent="";forge.idx++;if(forge.slots.every(x=>x.done))forgeFinish();else moveAva();}
+  }
+}
+
+async function forgeFinish(){
+  const secs=Math.round((Date.now()-forge.t0)/1000);
+  const total=forge.slots.filter(s=>!s.given).length||1;
+  const acc=forge.firstTry/total;
+  const d=await api("/api/forge/complete",{method:"POST",body:JSON.stringify({itemId:forge.item.id,accuracy:+acc.toFixed(3),timeMs:secs*1000,mistakes:forge.mistakes,hintsUsed:0})});
+  $("#forgeDone").innerHTML=`<div class="card"><h3>SENTENCE FORGED ${d.combo?"· "+d.combo:""}</h3>
+    <p>Accuracy: ${Math.round(acc*100)}% · Time: ${fmtT(secs*1000)} · Mistakes: ${forge.mistakes}</p>
+    <p><b>+${d.xp} XP · +${d.coins} coins</b></p>
+    <p class="muted">${d.vocabAdded} words added to review queue.</p></div>`;
+  forge.idx=forge.slots.length;
+  loadDashboard();
+}
+
+$("#forgeFlexBtn").onclick=async()=>{
+  const first=(await api("/api/forge/item?difficulty="+ +$("#forgeLevel").value));
+  const d=await api("/api/forge/flex",{method:"POST",body:JSON.stringify({itemId:first.id,candidate:$("#forgeFlexText").value})});
+  $("#forgeFlexOut").innerHTML=`<div class="card"><p><b>${d.equivalent?"Equivalent":"Not equivalent"}</b> · score ${d.score} · +${d.xp} XP</p><p>${d.feedback||""}</p></div>`;
 };

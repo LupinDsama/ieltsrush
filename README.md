@@ -3,6 +3,19 @@
 Target: 6.5 → Overall 8.0 minimum (R≥8.5, L≥8.5, W≥7.5, S≥7.5), stretch Overall 8.5 (R9/L9/W8/S8).
 Note: R9+L9+W8+S8 averages 8.5, not 8.0 — the app shows both tiers to avoid confusion.
 
+## Spec implementation (IELTS_20_Day_Board_Game_AI_Spec.md)
+
+- Timed quests with answer keys (`/api/quest/start`, `/api/quest/submit`): objective scoring, warnings at 50/75/90/100%, autosave, auto-submit, progression (70% unlock, 85/95% bonus), quest result + next-best action.
+- Question bank with attribution (`/api/questions`, `/api/sources/seed`); keys never leave the server.
+- Day-1 diagnostic (`/api/diagnostic/submit`) producing a normalized 5-factor 80/20 profile (gap, error, frequency, impact, recency).
+- Paraphrase Forge: strict char-by-char mode + flexible AI-judged mode (`/api/forge/item`, `/api/forge/complete`, `/api/forge/flex`), vocab auto-queued to Day 0/1/3/6/10/15/20 spaced repetition (`/api/review/*`).
+- AI chain: up to 3 Gemini keys rotated via secrets (`AI_API_KEY`, `AI_API_KEY_2`, `AI_API_KEY_3`), Workers AI fallback, JSON repair + retry.
+
+## Verify
+
+- `npm.cmd run typecheck` (tsc)
+- `npm.cmd test` (48 API + parser + key-rotation cases on real in-memory SQLite)
+
 ## Stack
 - Cloudflare Workers: serverless API + static frontend
 - Cloudflare D1: progress, vocabulary, quizzes, writing/speaking history

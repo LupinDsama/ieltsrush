@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import worker, { parseModelJSON } from '../src/index.ts';
 
 const db = new DatabaseSync(':memory:');
-for (const f of ['migrations/0001_init.sql', 'migrations/0002_gameboard.sql']) {
+for (const f of ['migrations/0001_init.sql', 'migrations/0002_gameboard.sql', 'migrations/0003_spec_tables.sql']) {
   db.exec(fs.readFileSync(f, 'utf8'));
 }
 
@@ -164,6 +164,93 @@ try {
   const c = parseModelJSON('Sure! Here is it:\n{"words":[{"word":"mitigate"}]}\nHope that helps');
   ok('parse prose-wrapped', c.words?.[0]?.word === 'mitigate', JSON.stringify(c).slice(0, 80));
 } catch (e) { ok('parse prose-wrapped', false, String(e)); }
+
+// 14 key ring: rotates to next key on retryable failure, falls back when all fail
+{
+  const seen = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opt) => {
+    if (String(url).includes('generativelanguage')) {
+      const k = opt.headers['x-goog-api-key'];
+      seen.push(k);
+      if (k === 'k1') return new Response(JSON.stringify({ error: { message: 'high demand' } }), { status: 503 });
+      return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"versions":[{"text":"ok"}],"key_changes":[]}' }] } }] }), { status: 200 });
+    }
+    return realFetch(url, opt);
+  };
+  const env2 = { ...env, AI_API_KEY: 'k1', AI_API_KEY_2: 'k2' };
+  const req = new Request('http://x/api/paraphrase', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'Hi.' }) });
+  const res = await worker.fetch(req, env2);
+  const data = await res.json();
+  ok('key rotation tries next key', seen.join(',') === 'k1,k2' && (data.versions || []).length === 1, seen.join(','));
+  globalThis.fetch = async (url, opt) => {
+    if (String(url).includes('generativelanguage')) {
+      return new Response(JSON.stringify({ error: { message: 'busy' } }), { status: 503 });
+    }
+    return realFetch(url, opt);
+  };
+  const req2 = new Request('http://x/api/dashboard', { method: 'GET' });
+  const res2 = await worker.fetch(req2, env);
+  ok('dashboard unaffected by fetch stub', res2.status === 200);
+  globalThis.fetch = realFetch;
+}
+
+// 15 spec: sources seed + question bank hides answers pre-submit
+r = await call('/api/sources/seed', { method: 'POST', body: {} });
+ok('sources seed', r.data.ok === true && r.data.seeded === 3, JSON.stringify(r.data));
+r = await call('/api/sources');
+ok('sources list', Array.isArray(r.data) && r.data.length === 3 && !!r.data[0].license_note);
+const srcId = r.data[0].id;
+r = await call('/api/questions', { method: 'POST', body: { skill: 'reading', questionType: 'TFNG', prompt: 'The sky is green. TRUE/FALSE/NOT GIVEN?', options: ['TRUE', 'FALSE', 'NOT GIVEN'], answer: 'FALSE', explanation: 'Sky is blue.', sourceId: srcId } });
+ok('question add', !!r.data.id);
+const qid1 = r.data.id;
+r = await call('/api/questions', { method: 'POST', body: { skill: 'reading', prompt: 'no key' } });
+ok('question requires key', r.status === 400);
+r = await call('/api/questions?skill=reading&type=TFNG&limit=5');
+ok('questions hide answer', r.data.length === 1 && !('answer' in r.data[0]) && r.data[0].prompt.includes('sky'));
+
+// 16 spec: diagnostic -> profile + v2 priorities with components
+r = await call('/api/diagnostic/submit', { method: 'POST', body: { bands: { reading: 7, listening: 7, writing: 6, speaking: 6 }, results: [{ skill: 'reading', questionType: 'TFNG', correct: 5, total: 10 }] } });
+ok('diagnostic profile', r.data.profile?.current_reading === 7, JSON.stringify(r.data.profile)?.slice(0, 120));
+ok('diagnostic v2 components', Array.isArray(r.data.priorities?.components) && r.data.priorities.components[0]?.impact === 0.9, JSON.stringify(r.data.priorities?.components?.[0]));
+ok('diagnostic next best', (r.data.nextBest?.actions || []).length > 0);
+
+// 17 spec: quest generate from evidence + timed start + objective submit
+r = await call('/api/quests/generate', { method: 'POST', body: { day: 6 } });
+ok('quest generate evidence', !!r.data.quest?.id && r.data.quest.skill === 'reading' && r.data.needsContent === false && (r.data.questions || []).length === 1, JSON.stringify(r.data.quest));
+const genQuest = r.data.quest.id;
+r = await call('/api/quest/start', { method: 'POST', body: { questId: genQuest } });
+ok('quest start timed', !!r.data.startedAt && r.data.durationMin === 15 && JSON.stringify(r.data.warnings) === '[50,75,90,100]' && !('answer' in (r.data.questions[0] || {})), JSON.stringify(r.data).slice(0, 160));
+r = await call('/api/quest/submit', { method: 'POST', body: { questId: genQuest, answers: [{ questionId: qid1, answer: 'FALSE' }], startedAt: new Date(Date.now() - 60000).toISOString(), hintsUsed: 0 } });
+ok('quest submit objective', r.data.accuracy === 1 && r.data.score === 1 && r.data.xp > 0 && (r.data.nextBest || []).length > 0 && r.data.practiceEstimate === true, JSON.stringify(r.data).slice(0, 200));
+r = await call('/api/quest/submit', { method: 'POST', body: { questId: 'nope', answers: [] } });
+ok('quest submit 404', r.status === 404);
+r = await call('/api/next-actions');
+ok('next actions stored', Array.isArray(r.data) && r.data.length > 0);
+
+// 18 spec: forge item + strict complete + review queue (flex needs live AI, skip)
+{
+  const realFetch2 = globalThis.fetch;
+  globalThis.fetch = async (url, opt) => {
+    if (String(url).includes('generativelanguage')) {
+      return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"source_text":"Chinh phu nen dau tu vao giao duc.","target_text":"The government should invest in education.","vocab":["government","invest","education"]}' }] } }] }), { status: 200 });
+    }
+    return realFetch2(url, opt);
+  };
+  const env3 = { ...env, AI_API_KEY: 'k9' };
+  const ri = await worker.fetch(new Request('http://x/api/forge/item?difficulty=1', { method: 'GET' }), env3);
+  const item = await ri.json();
+  ok('forge item', !!item.id && !!item.source_text && !!item.target_text, JSON.stringify(item).slice(0, 120));
+  const rc = await worker.fetch(new Request('http://x/api/forge/complete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ itemId: item.id, accuracy: 1, timeMs: 21000, mistakes: 0, hintsUsed: 0 }) }), env3);
+  const done = await rc.json();
+  ok('forge complete vocab queue', done.ok === true && done.combo === 'SENTENCE FORGED' && done.vocabAdded === 3, JSON.stringify(done));
+  globalThis.fetch = realFetch2;
+}
+r = await call('/api/review/due');
+ok('review due lists forge words', Array.isArray(r.data) && r.data.length === 3, 'got ' + r.data.length);
+const vid = r.data[0].id;
+r = await call('/api/review/submit', { method: 'POST', body: { vocabularyId: vid, correct: true, timeMs: 1500 } });
+ok('review ladder up', r.data.ok === true && r.data.level === 1, JSON.stringify(r.data));
 
 console.log(`\nRESULT ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

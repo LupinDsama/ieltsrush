@@ -32,6 +32,8 @@
 
   <nav class="tabs">
     <button class="active" data-tab="dashboard">Board</button>
+    <button data-tab="quest">Quest</button>
+    <button data-tab="forge">Forge</button>
     <button data-tab="vocab">Vocabulary Lab</button>
     <button data-tab="paraphrase">Paraphrase</button>
     <button data-tab="writing">Writing Coach</button>
@@ -83,6 +85,66 @@
     </div>
     <h3>Campaign: Day 1 Diagnostic to Day 20 Final Boss</h3>
     <div id="days" class="days"></div>
+    <div class="panel">
+      <h3>Day 1 diagnostic</h3>
+      <p class="muted">Enter self bands plus a 10-question sample per type, or just bands to start.</p>
+      <div class="profile-grid">
+        <label>R band <input id="dgR" type="number" step="0.5" min="0" max="9" value="7"></label>
+        <label>L band <input id="dgL" type="number" step="0.5" min="0" max="9" value="7"></label>
+        <label>W band <input id="dgW" type="number" step="0.5" min="0" max="9" value="6"></label>
+        <label>S band <input id="dgS" type="number" step="0.5" min="0" max="9" value="6.5"></label>
+        <label>Weak type <input id="dgType" value="TFNG"></label>
+        <label>Correct / Total <input id="dgScore" value="5/10"></label>
+        <button id="diagBtn">Submit diagnostic</button>
+        <span id="diagOut" class="muted"></span>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Quest nodes</h3>
+      <div id="questNodes"></div>
+      <div class="profile-grid">
+        <label>Day <input id="genDay" type="number" min="1" max="20" value="6"></label>
+        <button id="genQuest">Generate quest from evidence</button>
+        <span id="genOut" class="muted"></span>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Quest result</h3>
+      <div id="questResultBoard"><p class="muted">No quest completed yet.</p></div>
+      <h3>Next best action</h3>
+      <div id="nextBest"></div>
+    </div>
+  </section>
+
+  <section id="quest" class="tab hidden">
+    <div class="section-head"><h2>Timed quest</h2></div>
+    <div class="panel">
+      <div class="profile-grid">
+        <label>Quest ID <input id="runQuestId" placeholder="paste from Board"></label>
+        <button id="startQuest">Start timed quest</button>
+      </div>
+    </div>
+    <div id="runner"></div>
+  </section>
+
+  <section id="forge" class="tab hidden">
+    <div class="section-head"><h2>Paraphrase Forge</h2></div>
+    <div class="panel">
+      <div class="profile-grid">
+        <label>Level <input id="forgeLevel" type="number" min="1" max="6" value="1"></label>
+        <button id="forgeNew">New sentence</button>
+        <button id="forgeMode">Mode: strict</button>
+      </div>
+      <p class="muted">Type each character. Green advances, red stays. Hint after 3 misses.</p>
+    </div>
+    <div id="forgeArea"></div>
+    <div class="panel hidden" id="forgeFlexPanel">
+      <h3>Flexible mode</h3>
+      <p class="muted">Write your own paraphrase. AI judges meaning, not word match.</p>
+      <textarea id="forgeFlexText" rows="4" placeholder="Your English sentence..."></textarea>
+      <button id="forgeFlexBtn">Judge my sentence</button>
+      <div id="forgeFlexOut"></div>
+    </div>
   </section>
 
   <section id="vocab" class="tab hidden">

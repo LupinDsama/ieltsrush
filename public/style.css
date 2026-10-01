@@ -68,6 +68,26 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   .kingdom:not(.featured):not(.wide){grid-column:span 6}
   .target{display:none}
 }
+#questNodes{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:10px 0}
+.node{display:grid;gap:6px;text-align:left;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-card);padding:12px 14px;cursor:pointer;color:var(--text);font:inherit}
+.node-locked{opacity:.45;cursor:not-allowed}
+.node-done{opacity:.65}
+.node b{letter-spacing:-0.01em}
+.run-top{display:flex;gap:14px;align-items:baseline;flex-wrap:wrap}
+#runTimer{font-size:1.5rem;font-weight:800;font-variant-numeric:tabular-nums}
+.progress{height:8px;background:var(--bg);border:1px solid var(--border);border-radius:999px;overflow:hidden}
+.progress div{height:100%;background:var(--accent);transition:width .2s ease}
+.opt{display:flex;gap:8px;align-items:center;padding:6px 0}
+.opt input{accent-color:var(--accent)}
+#forgeSlots{position:relative;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-control);padding:22px 14px 14px;line-height:2.4;cursor:text}
+#forgeSlots:focus{outline:2px solid var(--accent);outline-offset:2px}
+.fword{display:inline-block;white-space:nowrap;margin-right:14px}
+.slot{display:inline-block;min-width:14px;text-align:center;border-bottom:2px solid var(--border);margin:0 1px;font-weight:700;font-size:1.1rem}
+.slot.given,.slot.ok{color:var(--accent);border-bottom-color:var(--accent)}
+.slot.bad{color:#f87171;border-bottom-color:#f87171}
+.slot.hinted{color:var(--muted)}
+#forgeAva{position:absolute;color:var(--accent);font-size:12px;transition:left .15s ease,top .15s ease;pointer-events:none}
+#forgeArea{position:relative}
 @media(prefers-reduced-motion:reduce){
   *{transition:none !important;animation:none !important}
 }
