@@ -3,6 +3,8 @@
 Target: 6.5 → Overall 8.0 minimum (R≥8.5, L≥8.5, W≥7.5, S≥7.5), stretch Overall 8.5 (R9/L9/W8/S8).
 Note: R9+L9+W8+S8 averages 8.5, not 8.0 — the app shows both tiers to avoid confusion.
 
+https://ielts-20-day-accelerator.lupindsama.workers.dev
+
 ## Spec implementation (IELTS_20_Day_Board_Game_AI_Spec.md)
 
 - Timed quests with answer keys (`/api/quest/start`, `/api/quest/submit`): objective scoring, warnings at 50/75/90/100%, autosave, auto-submit, progression (70% unlock, 85/95% bonus), quest result + next-best action.
