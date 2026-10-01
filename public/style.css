@@ -1,0 +1,73 @@
+/* Taste Skill read: education game-board product UI for a solo learner.
+   Dials: VARIANCE 6 / MOTION 3 / DENSITY 5.
+   Locks: dark-only page theme; single accent #38bdf8; shape rule cards 16px, controls 10px, pills full. */
+:root{
+  --bg:#09090b; --surface:#131316; --elevated:#1b1b1f; --border:#27272a;
+  --text:#fafafa; --muted:#a1a1aa; --accent:#38bdf8; --accent-ink:#082f49;
+  --radius-card:16px; --radius-control:10px;
+  font-family:"Outfit","Geist",system-ui,-apple-system,"Segoe UI",sans-serif;
+  background:var(--bg); color:var(--text); line-height:1.5;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0}
+header{height:64px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 5%;position:sticky;top:0;background:var(--bg);z-index:5;white-space:nowrap;overflow:hidden}
+.brand{font-weight:800;letter-spacing:-0.02em}
+.brand span{color:var(--accent)}
+.target{font-size:13px;color:var(--muted)}
+main{max-width:1120px;margin:0 auto}
+.hero{padding:40px 5% 28px;display:grid;grid-template-columns:1.2fr .8fr;gap:28px;align-items:start}
+.eyebrow{color:var(--accent);font-size:12px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;margin:0 0 8px}
+.hero h1{font-size:clamp(2.25rem,4vw,3.25rem);margin:0 0 8px;letter-spacing:-0.03em;line-height:1.05}
+.muted{color:var(--muted)}
+.hero-copy p.muted{max-width:44ch}
+.hero-cta{margin-top:14px}
+.target-strip{margin:0;display:grid;gap:8px}
+.target-strip div{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-card);padding:12px 14px;display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.target-strip dt{font-size:13px;color:var(--muted)}
+.target-strip dd{margin:0;font-weight:800;font-variant-numeric:tabular-nums}
+.tabs{display:flex;gap:8px;padding:12px 5%;border-bottom:1px solid var(--border);overflow:auto}
+button{font:inherit;color:var(--text)}
+.tabs button,.section-head button,.panel button,.hero-cta button,.kingdom button{border:1px solid var(--border);background:var(--elevated);padding:10px 16px;border-radius:var(--radius-control);cursor:pointer;white-space:nowrap;transition:transform .15s ease,opacity .15s ease,background .15s ease}
+.tabs button.active{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:700}
+.panel button,.hero-cta button,.section-head button{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:700}
+button:active{transform:translateY(1px) scale(.99)}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tab{padding:28px 5%}
+.hidden{display:none}
+.section-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.hud{display:flex;gap:8px;align-items:center;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-card);padding:12px 14px;margin-bottom:12px;font-weight:700;flex-wrap:wrap}
+.hud span{background:var(--elevated);border:1px solid var(--border);border-radius:999px;padding:6px 12px;font-variant-numeric:tabular-nums}
+.days{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.day{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-card);padding:14px}
+.day.done{opacity:.55}
+.day-top{display:flex;justify-content:space-between;align-items:center}
+.day input{accent-color:var(--accent)}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-card);padding:18px;margin:14px 0;display:grid;gap:12px}
+.panel h3,.kingdom h3{margin:0;letter-spacing:-0.01em}
+.panel label{display:grid;gap:6px;color:var(--muted);font-size:14px}
+.panel input,.panel select,.panel textarea{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:var(--radius-control);padding:11px;font:inherit}
+.panel button,.kingdom button{justify-self:start}
+.kingdoms{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin:12px 0}
+.kingdom{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-card);padding:16px;display:grid;gap:10px;align-content:start}
+.kingdom.featured{grid-column:span 6}
+.kingdom:not(.featured):not(.wide){grid-column:span 3}
+.kingdom.wide{grid-column:span 6}
+.kingdom .muted{font-size:14px}
+.pri{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-control);padding:8px 10px;margin:6px 0}
+.profile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end}
+.card,.source-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-card);padding:16px;margin:10px 0}
+.flash-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
+.flash{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px}
+.flash h4{margin:0 0 6px}
+.tag{display:inline-block;padding:3px 10px;border-radius:999px;background:var(--elevated);border:1px solid var(--border);color:var(--text);font-size:11px;margin:2px}
+.source-card a{display:block;color:var(--accent);margin:8px 0}
+.score{font-size:2rem;font-weight:800;color:var(--accent);font-variant-numeric:tabular-nums}
+@media(max-width:800px){
+  .hero{grid-template-columns:1fr}
+  .kingdom:not(.featured):not(.wide){grid-column:span 6}
+  .target{display:none}
+}
+@media(prefers-reduced-motion:reduce){
+  *{transition:none !important;animation:none !important}
+}

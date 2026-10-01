@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>IELTS 20-Day Accelerator</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <div class="brand"><span>IELTS</span> 20-Day Accelerator</div>
+  <div class="target">Overall 8.0 min · Stretch 8.5 (R9 L9 W8 S8)</div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="hero-copy">
+      <p class="eyebrow">20-day ascension plan</p>
+      <h1>From 6.5 to 8.0</h1>
+      <p class="muted">AI finds your weakest 20 percent, turns it into quests, remembers results, and rebuilds tomorrow.</p>
+      <div class="hero-cta">
+        <button id="seedPlanTop">Build my 20-day board</button>
+      </div>
+    </div>
+    <dl class="target-strip">
+      <div><dt>Reading min / stretch</dt><dd>8.5 / 9.0</dd></div>
+      <div><dt>Listening min / stretch</dt><dd>8.5 / 9.0</dd></div>
+      <div><dt>Writing min / stretch</dt><dd>7.5 / 8.0</dd></div>
+      <div><dt>Speaking min / stretch</dt><dd>7.5 / 8.0</dd></div>
+    </dl>
+  </section>
+
+  <nav class="tabs">
+    <button class="active" data-tab="dashboard">Board</button>
+    <button data-tab="vocab">Vocabulary Lab</button>
+    <button data-tab="paraphrase">Paraphrase</button>
+    <button data-tab="writing">Writing Coach</button>
+    <button data-tab="speaking">Speaking Coach</button>
+    <button data-tab="sources">Sources</button>
+  </nav>
+
+  <section id="dashboard" class="tab">
+    <div id="hud" class="hud"><span id="hudLevel">Lv.1</span><span id="hudXp">0 XP</span><span id="hudCoins">0 coins</span><span id="hudStreak"></span></div>
+    <div class="section-head"><h2>Game board</h2><button id="seedPlan">Create 20-day plan</button></div>
+    <div class="panel">
+      <h3>Today priority</h3>
+      <div id="priority"></div>
+      <p class="muted">Priority = Distance to Target x Error Frequency x Score Impact. 96 min high-impact, 24 min maintenance.</p>
+    </div>
+    <div class="panel">
+      <h3>Your current bands</h3>
+      <div class="profile-grid">
+        <label>Reading <input id="curR" type="number" step="0.5" min="0" max="9" value="7"></label>
+        <label>Listening <input id="curL" type="number" step="0.5" min="0" max="9" value="7.5"></label>
+        <label>Writing <input id="curW" type="number" step="0.5" min="0" max="9" value="6"></label>
+        <label>Speaking <input id="curS" type="number" step="0.5" min="0" max="9" value="6.5"></label>
+        <button id="saveProfile">Save and recalc</button>
+      </div>
+    </div>
+    <div class="kingdoms">
+      <div class="kingdom featured"><h3>Reading Kingdom</h3><p class="muted">6.5 to 9.0. TFNG, Headings, Matching, MCQ, Completion, speed, paraphrase.</p><button data-log="reading">Log attempt</button></div>
+      <div class="kingdom"><h3>Listening Kingdom</h3><p class="muted">6.5 to 9.0. Spelling, distractors, prediction, map, Sec 3-4.</p><button data-log="listening">Log attempt</button></div>
+      <div class="kingdom"><h3>Writing Kingdom</h3><p class="muted">6.5 to 8.0. Thesis, development, cohesion, lexical, grammar, overview.</p><button data-log="writing">Log attempt</button></div>
+      <div class="kingdom wide"><h3>Speaking Kingdom</h3><p class="muted">6.5 to 8.0. Fluency, lexical chunks, grammar, Part 1 to Part 3. Low input, high repair value.</p><button data-log="speaking">Log attempt</button></div>
+    </div>
+    <div class="panel">
+      <h3>Quest result</h3>
+      <p class="muted">XP rewards quality, not clicks. Low accuracy earns little.</p>
+      <div class="profile-grid">
+        <label>Total <input id="qTotal" type="number" value="20"></label>
+        <label>Correct <input id="qCorrect" type="number" value="15"></label>
+        <label>Explained <input id="qExplained" type="number" value="10"></label>
+        <label>Fixed old errors <input id="qFixed" type="number" value="2"></label>
+        <button id="completeQuest">Complete quest</button>
+        <span id="questResult" class="muted"></span>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Boss battle</h3>
+      <p class="muted">Built from your weakest patterns, never random.</p>
+      <button id="genBoss">Generate boss fight</button>
+      <div id="bossOut"></div>
+    </div>
+    <h3>Campaign: Day 1 Diagnostic to Day 20 Final Boss</h3>
+    <div id="days" class="days"></div>
+  </section>
+
+  <section id="vocab" class="tab hidden">
+    <div class="section-head"><h2>Vocabulary Lab</h2></div>
+    <p class="muted">Generate 100 words, review as inventory, then quiz.</p>
+    <div class="panel">
+      <label>Topic <input id="vocabTopic" value="Technology and AI"></label>
+      <label>Number <input id="vocabCount" type="number" min="10" max="100" value="100"></label>
+      <button id="generateVocab">Generate and save</button>
+      <span id="vocabStatus" class="muted"></span>
+    </div>
+    <div id="vocabOutput"></div>
+  </section>
+
+  <section id="paraphrase" class="tab hidden">
+    <h2>Paraphrase Lab</h2>
+    <div class="panel">
+      <textarea id="paraText" rows="6" placeholder="Paste a sentence or paragraph..."></textarea>
+      <button id="paraphraseBtn">Generate 3 paraphrases</button>
+    </div>
+    <div id="paraOutput"></div>
+  </section>
+
+  <section id="writing" class="tab hidden">
+    <h2>Writing Coach</h2>
+    <div class="panel">
+      <select id="writingTask"><option value="task2">Task 2</option><option value="task1">Task 1</option></select>
+      <textarea id="writingPrompt" rows="4" placeholder="Paste the exact question..."></textarea>
+      <textarea id="writingAnswer" rows="14" placeholder="Write your answer here..."></textarea>
+      <button id="writingBtn">Assess my writing</button>
+    </div>
+    <div id="writingOutput"></div>
+  </section>
+
+  <section id="speaking" class="tab hidden">
+    <h2>Speaking Coach</h2>
+    <div class="panel">
+      <p class="muted">Paste a transcript. Text feedback cannot assess pronunciation.</p>
+      <textarea id="speakingTranscript" rows="12" placeholder="Part 2/3 answer transcript..."></textarea>
+      <button id="speakingBtn">Analyse speaking</button>
+    </div>
+    <div id="speakingOutput"></div>
+  </section>
+
+  <section id="sources" class="tab hidden">
+    <h2>Source bank</h2>
+    <p class="muted">Use official IELTS materials and licensed content. Save links and attribution, not full copies.</p>
+    <div class="source-card">
+      <h3>Official IELTS sample tests</h3>
+      <a href="https://www.ielts.org/take-a-test/preparation-resources/sample-test-questions/academic-test" target="_blank">IELTS Academic sample questions</a>
+      <a href="https://www.ielts.org/take-a-test/preparation-resources/sample-test-questions/general-training-test" target="_blank">IELTS General Training sample questions</a>
+    </div>
+    <div class="source-card">
+      <h3>How this app handles external content</h3>
+      <p>For third-party sites, add only material you have permission to use, or store a link with short excerpt and attribution.</p>
+    </div>
+  </section>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>

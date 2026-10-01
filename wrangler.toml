@@ -1,0 +1,17 @@
+name = "ielts-20-day-accelerator"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+
+[assets]
+directory = "./public"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ielts_20_day"
+database_id = "68dda281-1262-42ae-a7de-0302d47ae199"
+
+[ai]
+binding = "AI"
+
+[vars]
+APP_NAME = "IELTS 20-Day Accelerator"
