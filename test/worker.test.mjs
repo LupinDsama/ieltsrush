@@ -11,6 +11,10 @@ for (const f of ['migrations/0001_init.sql', 'migrations/0002_gameboard.sql', 'm
 
 // D1-compatible shim over node:sqlite
 const D1 = {
+  async batch(stmts) {
+    for (const s of stmts) await s.run();
+    return [];
+  },
   prepare(sql) {
     const stmt = db.prepare(sql);
     const bound = {
@@ -36,10 +40,12 @@ const D1 = {
 const AI = {
   async run(model, { prompt }) {
     if (prompt.includes('vocabulary teacher')) {
-      return { response: JSON.stringify({ words: [{ word: 'mitigate', pos: 'verb', definition: 'to reduce severity', meaning_vi: 'giam nhe', example: 'Policies mitigate risks.', collocations: ['mitigate risk'], synonyms: ['alleviate'], difficulty: 3 }] }) };
+      return { response: JSON.stringify({ words: [{ word: 'mitigate', pos: 'verb', definition: 'to reduce severity', meaning_vi: 'giam nhe', example: 'Policies mitigate risks.', collocations: ['mitigate risk'], synonyms: ['alleviate'], difficulty: 3 }], questions: [{ question: 'mitigate means?', options: ['reduce', 'grow', 'hide', 'skip'], answer: 'reduce', explanation: 'it means reduce' }] }) };
     }
-    if (prompt.includes('multiple-choice questions')) {
-      return { response: JSON.stringify({ questions: [{ question: 'mitigate means?', options: ['reduce', 'grow', 'hide', 'skip'], answer: 'reduce', explanation: 'it means reduce' }] }) };
+    if (prompt.includes('paraphrase item writer')) {
+      const n = (prompt.match(/Write exactly (\d+) items/) || [])[1] || 1;
+      const items = Array.from({ length: Number(n) }, (_, i) => ({ source_text: `Cau tieng Viet so ${i + 1}.`, target_text: `English sentence number ${i + 1}.`, vocab: ['english', 'sentence'] }));
+      return { response: JSON.stringify({ items }) };
     }
     if (prompt.includes('paraphrasing coach')) {
       return { response: JSON.stringify({ versions: [{ text: 'v1', techniques: ['syn'], notes: 'n' }], key_changes: [{ original: 'a', replacement: 'b', reason: 'c' }] }) };
@@ -251,6 +257,19 @@ ok('review due lists forge words', Array.isArray(r.data) && r.data.length === 3,
 const vid = r.data[0].id;
 r = await call('/api/review/submit', { method: 'POST', body: { vocabularyId: vid, correct: true, timeMs: 1500 } });
 ok('review ladder up', r.data.ok === true && r.data.level === 1, JSON.stringify(r.data));
+
+// 19 forge batch: one call, N sentences, no trailing periods
+r = await call('/api/forge/item?difficulty=2&count=3');
+ok('forge batch count', (r.data.items || []).length === 3, JSON.stringify(r.data).slice(0, 160));
+ok('forge no trailing period', (r.data.items || []).every(i => !/[.。!?…]$/.test(i.target_text) && !/[.。!?…]$/.test(i.source_text)), JSON.stringify((r.data.items || []).map(i => i.target_text)));
+r = await call('/api/forge/item?difficulty=2&count=1');
+ok('forge single compat', !!r.data.id && !!r.data.target_text);
+
+// 20 vocab generate: single AI call + batch insert
+r = await call('/api/vocab/generate', { method: 'POST', body: { topic: 'Health', count: 1 } });
+ok('vocab combined', !!r.data.setId && r.data.words?.length === 1 && r.data.questions?.length === 1, JSON.stringify(r.data).slice(0, 160));
+r = await call('/api/vocab/generate', { method: 'POST', body: { topic: 'Health', count: 50 } });
+ok('vocab chunked parallel', r.data.words?.length === 4 && r.data.questions?.length === 4, 'words=' + r.data.words?.length);
 
 console.log(`\nRESULT ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

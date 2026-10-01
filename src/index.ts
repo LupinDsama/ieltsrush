@@ -82,13 +82,15 @@ export function apiKeys(env: Env): string[] {
 let keyCursor = 0;
 
 async function geminiAttempt(base: string, model: string, key: string, prompt: string) {
+  const ctrl = AbortSignal.timeout(25000);
   const res = await fetch(`${base}/models/${model}:generateContent`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-goog-api-key": key },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: { responseMimeType: "application/json" }
-    })
+    }),
+    signal: ctrl
   });
   if (!res.ok) {
     let detail = "";
@@ -579,43 +581,64 @@ async function handle(req: Request, env: Env): Promise<Response> {
     const body = await req.json() as any;
     const topic = String(body.topic || "Education");
     const count = Math.min(Math.max(Number(body.count || 100), 1), 100);
-    const prompt = `You are an IELTS Academic vocabulary teacher.
+    const quizN = Math.min(20, Math.max(5, Math.round(count / 5)));
+    // Chunked parallel generation: small outputs stream faster and parse more
+    // reliably, and chunks spread across the API key ring (Promise.all).
+    // One bad chunk no longer kills the batch (allSettled).
+    const CHUNK = 15;
+    const chunks = Math.max(1, Math.ceil(count / CHUNK));
+    const perChunk = Math.floor(count / chunks);
+    const quizPer = Math.max(1, Math.round(quizN / chunks));
+    const mkPrompt = (n: number, q: number) => `You are an IELTS Academic vocabulary teacher.
 Return ONLY valid JSON:
-{"words":[{"word":"","pos":"","definition":"","meaning_vi":"","example":"","collocations":[""],"synonyms":[""],"difficulty":1}]}
-Generate exactly ${count} useful B2-C1/C2 vocabulary items for the topic "${topic}".
+{"words":[{"word":"","pos":"","definition":"","meaning_vi":"","example":"","collocations":[""],"synonyms":[""],"difficulty":1}],"questions":[{"question":"","options":["A","B","C","D"],"answer":"A","explanation":""}]}
+Generate exactly ${n} useful B2-C1/C2 vocabulary items for the topic "${topic}".
 Avoid obscure words. Prefer words that can be used naturally in IELTS Reading, Listening, Writing and Speaking.
-Examples must be original and concise. Do not copy source text.`;
-    const data = await aiJSON(env, prompt);
+Examples must be original and concise. Do not copy source text.
+Then create exactly ${q} multiple-choice questions from those words, testing meaning in context, collocations, synonym recognition and usage.`;
+    const settled = await Promise.allSettled(
+      Array.from({ length: chunks }, (_, i) => {
+        const n = i === chunks - 1 ? count - perChunk * (chunks - 1) : perChunk;
+        return aiJSON(env, mkPrompt(n, quizPer));
+      })
+    );
+    const results = settled.filter(s => s.status === "fulfilled").map(s => (s as PromiseFulfilledResult<any>).value);
+    const words = results.flatMap(r => r.words || []);
+    const questions = results.flatMap(r => r.questions || []).slice(0, quizN);
+    if (!words.length) {
+      const reason = settled.find(s => s.status === "rejected") as PromiseRejectedResult | undefined;
+      return cors(json({ error: "AI vocabulary generation failed: " + String(reason?.reason?.message || reason?.reason || "unknown") }, 502));
+    }
     const setId = id();
-    await env.DB.prepare(
-      "INSERT INTO vocab_sets(id,user_id,topic,level) VALUES(?,?,?,?)"
-    ).bind(setId, "demo-user", topic, "B2-C1").run();
-
-    for (const w of data.words || []) {
-      await env.DB.prepare(
-        `INSERT INTO vocabulary(id,set_id,word,pos,definition,meaning_vi,example,collocations,synonyms,difficulty)
-         VALUES(?,?,?,?,?,?,?,?,?,?)`
-      ).bind(
-        id(), setId, w.word, w.pos, w.definition, w.meaning_vi, w.example,
-        JSON.stringify(w.collocations || []), JSON.stringify(w.synonyms || []),
-        Number(w.difficulty || 3)
-      ).run();
+    const stmts: any[] = [
+      env.DB.prepare("INSERT INTO vocab_sets(id,user_id,topic,level) VALUES(?,?,?,?)").bind(setId, "demo-user", topic, "B2-C1")
+    ];
+    for (const w of words) {
+      stmts.push(
+        env.DB.prepare(
+          `INSERT INTO vocabulary(id,set_id,word,pos,definition,meaning_vi,example,collocations,synonyms,difficulty)
+           VALUES(?,?,?,?,?,?,?,?,?,?)`
+        ).bind(
+          id(), setId, w.word, w.pos, w.definition, w.meaning_vi, w.example,
+          JSON.stringify(w.collocations || []), JSON.stringify(w.synonyms || []),
+          Number(w.difficulty || 3)
+        )
+      );
+    }
+    for (const q of questions) {
+      stmts.push(
+        env.DB.prepare(
+          "INSERT INTO quiz_questions(id,set_id,question,options_json,answer,explanation) VALUES(?,?,?,?,?,?)"
+        ).bind(id(), setId, q.question, JSON.stringify(q.options), q.answer, q.explanation)
+      );
+    }
+    if (typeof (env.DB as any).batch === "function") {
+      await (env.DB as any).batch(stmts);
+    } else {
+      for (const s of stmts) await s.run();
     }
 
-    // Automatically generate a review quiz from the generated set.
-    const quizPrompt = `Create 20 IELTS vocabulary multiple-choice questions using these words:
-${JSON.stringify(data.words || [])}
-Return ONLY JSON:
-{"questions":[{"question":"","options":["A","B","C","D"],"answer":"A","explanation":""}]}
-Test meaning in context, collocations, synonym recognition and usage.`;
-    const quiz = await aiJSON(env, quizPrompt);
-    for (const q of quiz.questions || []) {
-      await env.DB.prepare(
-        "INSERT INTO quiz_questions(id,set_id,question,options_json,answer,explanation) VALUES(?,?,?,?,?,?)"
-      ).bind(id(), setId, q.question, JSON.stringify(q.options), q.answer, q.explanation).run();
-    }
-
-    return cors(json({ setId, topic, words: data.words, questions: quiz.questions || [] }));
+    return cors(json({ setId, topic, words, questions }));
   }
 
   if (path === "/api/vocab/set" && req.method === "GET") {
@@ -951,24 +974,37 @@ ${transcript}`;
   if (path === "/api/forge/item" && req.method === "GET") {
     const userId = url.searchParams.get("userId") || "demo-user";
     const difficulty = Math.min(6, Math.max(1, Number(url.searchParams.get("difficulty") || 1)));
+    const count = Math.min(5, Math.max(1, Number(url.searchParams.get("count") || 1)));
+    const clean = (s: string) => String(s || "").trim().replace(/\s+/g, " ").replace(/[.。!?…]+$/, "");
     const existing = await env.DB.prepare(
       "SELECT * FROM paraphrase_items WHERE user_id=? AND difficulty=? ORDER BY created_at ASC LIMIT 1"
     ).bind(userId, difficulty).first().catch(() => null) as any;
-    if (existing) {
+    if (existing && count === 1) {
       return cors(json({ id: existing.id, source_text: existing.source_text, target_text: existing.target_text, difficulty: existing.difficulty, vocab: JSON.parse(existing.source_vocab_json || "[]") }));
     }
     const levelHint = ["direct vocabulary", "synonym substitution", "grammatical transformation", "mixed transformation", "IELTS Reading paraphrase recognition", "IELTS Writing sentence production"][difficulty - 1];
+    // One AI call for the whole batch (was one call per sentence).
     const data = await aiJSON(env, `You are an IELTS paraphrase item writer.
-Return ONLY JSON: {"source_text":"","target_text":"","vocab":["",""]}
-source_text: a natural Vietnamese sentence (12-20 words).
-target_text: its English equivalent at difficulty "${levelHint}" (12-22 words, single sentence).
+Return ONLY JSON: {"items":[{"source_text":"","target_text":"","vocab":["",""]}]}
+Write exactly ${count} items.
+source_text: a natural Vietnamese sentence (12-20 words). Never end with a period.
+target_text: its English equivalent at difficulty "${levelHint}" (12-22 words, single sentence). Never end with a period.
 vocab: 3-5 key English words from target_text worth reviewing.
 Write original sentences, nothing copyrighted.`);
-    const itemId = id();
-    await env.DB.prepare(
-      "INSERT INTO paraphrase_items(id,user_id,source_text,target_text,difficulty,source_vocab_json) VALUES(?,?,?,?,?,?)"
-    ).bind(itemId, userId, data.source_text, data.target_text, difficulty, JSON.stringify(data.vocab || [])).run();
-    return cors(json({ id: itemId, source_text: data.source_text, target_text: data.target_text, difficulty, vocab: data.vocab || [] }));
+    const rawItems = (Array.isArray((data as any).items) ? (data as any).items : [data]).slice(0, count);
+    const items: any[] = [];
+    for (const it of rawItems) {
+      const itemId = id();
+      const source = clean(it.source_text);
+      const target = clean(it.target_text);
+      if (!source || !target) continue;
+      await env.DB.prepare(
+        "INSERT INTO paraphrase_items(id,user_id,source_text,target_text,difficulty,source_vocab_json) VALUES(?,?,?,?,?,?)"
+      ).bind(itemId, userId, source, target, difficulty, JSON.stringify(it.vocab || [])).run();
+      items.push({ id: itemId, source_text: source, target_text: target, difficulty, vocab: it.vocab || [] });
+    }
+    if (!items.length) return cors(json({ error: "AI returned no usable items" }, 502));
+    return cors(json(count === 1 ? items[0] : { items, difficulty }));
   }
 
   if (path === "/api/forge/complete" && req.method === "POST") {

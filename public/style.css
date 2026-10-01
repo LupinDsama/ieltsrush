@@ -68,6 +68,10 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   .kingdom:not(.featured):not(.wide){grid-column:span 6}
   .target{display:none}
 }
+#loadbar{position:fixed;top:0;left:0;height:3px;width:0;background:var(--accent);z-index:50;transition:width .25s ease}
+button.busy{opacity:.65;pointer-events:none}
+button.busy::after{content:"";display:inline-block;width:12px;height:12px;margin-left:8px;vertical-align:-1px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 #questNodes{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:10px 0}
 .node{display:grid;gap:6px;text-align:left;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-card);padding:12px 14px;cursor:pointer;color:var(--text);font:inherit}
 .node-locked{opacity:.45;cursor:not-allowed}
