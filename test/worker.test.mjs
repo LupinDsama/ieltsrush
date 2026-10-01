@@ -2,7 +2,7 @@
 // Exercises every Worker endpoint incl. game-board / 80-20 APIs.
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
-import worker from '../src/index.ts';
+import worker, { parseModelJSON } from '../src/index.ts';
 
 const db = new DatabaseSync(':memory:');
 for (const f of ['migrations/0001_init.sql', 'migrations/0002_gameboard.sql']) {
@@ -150,6 +150,20 @@ r = await call('/api/nope');
 ok('404', r.status === 404);
 r = await call('/api/health', { method: 'POST', body: null }).catch(() => ({ status: 0 }));
 ok('options cors', (await worker.fetch(new Request('http://x/api/health', { method: 'OPTIONS' }), env)).status === 204);
+
+// 13 parseModelJSON repairs fenced / truncated model output
+try {
+  const a = parseModelJSON('```json\n{"versions":[{"text":"hi"}]}\n```');
+  ok('parse fenced', a.versions?.length === 1, JSON.stringify(a).slice(0, 80));
+} catch (e) { ok('parse fenced', false, String(e)); }
+try {
+  const b = parseModelJSON('{"versions":[{"text":"a"}],"key_changes":');
+  ok('parse truncated', b.versions?.length === 1, JSON.stringify(b).slice(0, 80));
+} catch (e) { ok('parse truncated', false, String(e)); }
+try {
+  const c = parseModelJSON('Sure! Here is it:\n{"words":[{"word":"mitigate"}]}\nHope that helps');
+  ok('parse prose-wrapped', c.words?.[0]?.word === 'mitigate', JSON.stringify(c).slice(0, 80));
+} catch (e) { ok('parse prose-wrapped', false, String(e)); }
 
 console.log(`\nRESULT ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

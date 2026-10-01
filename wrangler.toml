@@ -15,3 +15,5 @@ binding = "AI"
 
 [vars]
 APP_NAME = "IELTS 20-Day Accelerator"
+AI_MODEL = "gemini-3.8-flash"
+AI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"

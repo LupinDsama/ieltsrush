@@ -2,6 +2,10 @@ export interface Env {
   DB: D1Database;
   AI: Ai;
   APP_NAME: string;
+  AI_API_KEY?: string;
+  AI_API_BASE?: string;
+  AI_MODEL?: string;
+  CF_MODEL?: string;
 }
 
 const json = (data: unknown, status = 200) =>
@@ -12,13 +16,125 @@ const json = (data: unknown, status = 200) =>
 
 const id = () => crypto.randomUUID();
 
-async function aiJSON(env: Env, prompt: string) {
-  const result: any = await env.AI.run("@cf/meta/llama-3.1-8b-instruct", {
-    prompt,
-    response_format: { type: "json_object" }
+function geminiText(obj: any): string {
+  const parts = obj?.candidates?.[0]?.content?.parts || [];
+  return parts.map((p: any) => p.text || "").join("");
+}
+
+function stripFences(s: string): string {
+  const closed = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (closed) return closed[1].trim();
+  const unclosed = s.match(/```(?:json)?\s*([\s\S]*)/i);
+  return (unclosed ? unclosed[1] : s).trim();
+}
+
+function closeJson(s: string): string | null {
+  const stack: string[] = [];
+  let inStr = false, esc = false;
+  for (const ch of s) {
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+    } else {
+      if (ch === '"') inStr = true;
+      else if (ch === "{") stack.push("}");
+      else if (ch === "[") stack.push("]");
+      else if (ch === "}" || ch === "]") {
+        if (stack.length === 0) return null;
+        stack.pop();
+      }
+    }
+  }
+  if (inStr) return null;
+  // Drop a dangling trailing fragment like ,"key": or a bare : / ,
+  const body = s.replace(/,\s*"[^"]*"\s*:?\s*$/, "").replace(/[:,]\s*$/, "");
+  if (body !== s) return closeJson(body);
+  return s + stack.reverse().join("");
+}
+
+export function parseModelJSON(raw: unknown): any {
+  const text = stripFences(typeof raw === "string" ? raw : (raw as any)?.response ?? JSON.stringify(raw));
+  const candidates: string[] = [text];
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start >= 0 && end > start) candidates.push(text.slice(start, end + 1));
+  const repaired = closeJson(text.replace(/,\s*([}\]])/g, "$1"));
+  if (repaired && repaired !== text && !candidates.includes(repaired)) candidates.push(repaired);
+  let lastErr: any = new Error("no JSON object found");
+  for (const c of candidates) {
+    try { return JSON.parse(c); } catch (e) { lastErr = e; }
+  }
+  throw lastErr;
+}
+
+class AIConfigError extends Error {}
+
+async function geminiJSON(env: Env, prompt: string) {
+  const base = (env.AI_API_BASE || "https://generativelanguage.googleapis.com/v1beta").replace(/\/$/, "");
+  const model = env.AI_MODEL || "gemini-3.8-flash";
+  const key = (env.AI_API_KEY || "").trim();
+  const res = await fetch(`${base}/models/${model}:generateContent`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-goog-api-key": key },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { responseMimeType: "application/json" }
+    })
   });
-  const text = typeof result === "string" ? result : result.response ?? JSON.stringify(result);
-  return JSON.parse(text);
+  if (!res.ok) {
+    let detail = "";
+    try { detail = String((await res.clone().json() as any)?.error?.message || ""); } catch { /* ignore */ }
+    if (res.status === 401 || res.status === 403) {
+      throw new AIConfigError(`AI API ${res.status}: ${detail.slice(0, 160)}`);
+    }
+    if (res.status === 400 && !/location is not supported/i.test(detail)) {
+      throw new AIConfigError(`AI API 400: ${detail.slice(0, 160)}`);
+    }
+    // 429/5xx + region blocks + bad payloads: fall back to Workers AI.
+    throw new Error(`AI API ${res.status}: ${detail.slice(0, 120)}`);
+  }
+  const rawText = geminiText(await res.json());
+  try {
+    return parseModelJSON(rawText);
+  } catch {
+    const err = new Error("AI returned non-JSON");
+    (err as any).snippet = String(rawText).slice(0, 120);
+    throw err;
+  }
+}
+
+async function aiJSON(env: Env, prompt: string) {
+  // Primary: external Gemini-compatible API via secret key (never committed).
+  // Overload/parse failures fall back to Workers AI; bad key/model surfaces loudly.
+  if (env.AI_API_KEY) {
+    try {
+      return await geminiJSON(env, prompt);
+    } catch (e) {
+      console.error("AIDBG gemini failed:", (e as Error)?.message, "snippet:", String((e as any)?.snippet || "").slice(0, 80));
+      if (e instanceof AIConfigError || !env.AI) throw e;
+    }
+  }
+  // Fallback: Cloudflare Workers AI binding (retry once: small models flake).
+  let lastErr: any = new Error("AI binding failed");
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let result: any;
+    try {
+      result = await env.AI.run((env.CF_MODEL || "@cf/meta/llama-3.1-8b-instruct-fp8") as any, {
+        prompt,
+        response_format: { type: "json_object" },
+        max_tokens: 2048
+      } as any);
+    } catch (e) { lastErr = e; continue; }
+    const rawText = typeof result === "string" ? result : result.response ?? JSON.stringify(result);
+    try {
+      return parseModelJSON(rawText);
+    } catch (e) {
+      lastErr = e;
+      console.error("AIDBG binding bad json (try " + attempt + "):", (e as Error)?.message, "len:", String(rawText).length, "tail:", String(rawText).slice(-120));
+    }
+  }
+  throw new Error("AI binding returned non-JSON");
 }
 
 function cors(response: Response) {
